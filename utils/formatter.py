@@ -16,7 +16,7 @@ def format_market_output(data, price):
     # ===============================
     # HEADER
     # ===============================
-    output.append("🕒 <b>Author WhyuProject</b>")
+    output.append("🕒 <b>Developer Wahyu-Project</b>")
     output.append("━━━━━━━━━━━━━━━━━━")
     output.append(f"💰 <b>Harga:</b> {price:.2f}")
 
