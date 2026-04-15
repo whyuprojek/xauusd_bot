@@ -7,9 +7,6 @@ from utils.formatter import format_market_output
 from utils.visualizer import generate_chart
 
 
-# ===============================
-# 🔥 MEMORY ALERT (ANTI SPAM)
-# ===============================
 LAST_ALERT = {
     "snr": None,
     "h4": None,
@@ -17,9 +14,6 @@ LAST_ALERT = {
 }
 
 
-# ===============================
-# 🔥 ALERT FUNCTIONS
-# ===============================
 def check_snr_alert(price, sup, res):
     if sup and abs(price - sup) <= 3:
         return f"⚠️ Harga mendekati SUPPORT {sup}"
@@ -47,16 +41,12 @@ def check_snd_alert(data):
 
     if setup["type"] == "BUY":
         return f"🔥 SND BUY di Support {data.get('nearest_support')}"
-
     elif setup["type"] == "SELL":
         return f"🔥 SND SELL di Resistance {data.get('nearest_resistance')}"
 
     return None
 
 
-# ===============================
-# 🔥 EXECUTE ANALYSIS + ALERT
-# ===============================
 def execute_analysis(chat_id):
     scanner_data = scan_xauusd()
 
@@ -67,39 +57,29 @@ def execute_analysis(chat_id):
 
         output = format_market_output(data, price)
 
-        # ===============================
-        # 📊 GENERATE CHART
-        # ===============================
         chart_path = f"chart_{chat_id}.png"
-        generate_chart(df_m5, data, filename=chart_path)
 
-        # ===============================
-        # 📤 SEND RESULT
-        # ===============================
+        # 🔥 FIX: kirim TF besar ke visualizer
+        generate_chart(df_m5, df_m30, df_h4, data, filename=chart_path)
+
         if os.path.exists(chart_path):
             send_telegram_photo(chart_path, caption=output)
             os.remove(chart_path)
         else:
             send_telegram_msg(output)
 
-        # ===============================
-        # 🔥 ALERT SYSTEM (ANTI SPAM)
-        # ===============================
         global LAST_ALERT
 
-        # 🔴 SNR ALERT
         snr_alert = check_snr_alert(price, data.get("nearest_support"), data.get("nearest_resistance"))
         if snr_alert and LAST_ALERT["snr"] != snr_alert:
             send_telegram_msg(snr_alert)
             LAST_ALERT["snr"] = snr_alert
 
-        # 📊 H4 ALERT
         h4_alert = check_h4_alert(data)
         if h4_alert and LAST_ALERT["h4"] != h4_alert:
             send_telegram_msg(h4_alert)
             LAST_ALERT["h4"] = h4_alert
 
-        # 🔥 SND ALERT
         snd_alert = check_snd_alert(data)
         if snd_alert and LAST_ALERT["snd"] != snd_alert:
             send_telegram_msg(snd_alert)
@@ -109,9 +89,6 @@ def execute_analysis(chat_id):
         send_telegram_msg("❌ Gagal mengambil data market.")
 
 
-# ===============================
-# 🔘 HANDLER BUTTON
-# ===============================
 @bot.message_handler(func=lambda message: message.text == "🔄 CEK REALTIME")
 def btn_cek_market(message):
     send_telegram_msg("🔍 Sedang menganalisa market...")
@@ -143,23 +120,13 @@ def handle_text_snr(message):
         success = update_manual_snr(res_part.split(','), sup_part.split(','))
 
         if success:
-            send_telegram_msg(
-                "✅ <b>SNR MANUAL BERHASIL DISIMPAN!</b>\nKlik 🔄 CEK REALTIME untuk melihat hasil."
-            )
+            send_telegram_msg("✅ <b>SNR MANUAL BERHASIL DISIMPAN!</b>")
         else:
-            send_telegram_msg("❌ Gagal memproses angka. Pastikan hanya angka dan koma.")
+            send_telegram_msg("❌ Format salah.")
     except:
-        send_telegram_msg("❌ Format salah. Contoh: RES: 2350,2360 SUP: 2310,2300")
-
-
-# ===============================
-# 🔄 BACKGROUND LOOP (OPTIONAL)
-# ===============================
-def main_loop():
-    while True:
-        time.sleep(60)
+        send_telegram_msg("❌ Format salah.")
 
 
 if __name__ == "__main__":
-    print("🤖 Bot Polling Started with Alert System...")
+    print("🤖 Bot Polling Started...")
     bot.infinity_polling()
