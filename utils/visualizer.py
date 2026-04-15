@@ -7,7 +7,7 @@ def generate_chart(df, data, filename="chart.png"):
     # Draw Resistance (White) & Support (Red)
     snr = data.get('snr_zones', {})
     for uz, lz in snr.get('resistance', []):
-        plt.axhline(y=lz, color='white', linestyle='--', alpha=0.6)
+        plt.axhline(y=lz, color='black', linestyle='--', alpha=0.6)
     for uz, lz in snr.get('support', []):
         plt.axhline(y=uz, color='red', linestyle='--', alpha=0.6)
         

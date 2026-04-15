@@ -1,108 +1,272 @@
 import pandas as pd
 import numpy as np
+import json
+import os
 
-# SINGLE SOURCE OF TRUTH - Memori SNR Manual
+# ===============================
+# 📦 FILE SNR
+# ===============================
+SNR_FILE = "snr_storage.json"
+
+# ===============================
+# 📦 STORAGE SNR (MANUAL)
+# ===============================
 MANUAL_STORAGE = {
     "RES": [],
     "SUP": []
 }
 
+# ===============================
+# 🔄 LOAD SNR
+# ===============================
+def load_snr_from_file():
+    global MANUAL_STORAGE
+
+    try:
+        if os.path.exists(SNR_FILE):
+            with open(SNR_FILE, "r") as f:
+                data = json.load(f)
+
+                MANUAL_STORAGE["RES"] = data.get("RES", [])
+                MANUAL_STORAGE["SUP"] = data.get("SUP", [])
+
+                print(f"✅ SNR Loaded: {MANUAL_STORAGE}")
+        else:
+            print("⚠️ File SNR tidak ditemukan")
+
+    except Exception as e:
+        print(f"❌ Load SNR error: {e}")
+
+
+# ===============================
+# 💾 SAVE SNR
+# ===============================
 def update_manual_snr(res_list, sup_list):
-    """Menyimpan level murni dari user dan sorting otomatis."""
     global MANUAL_STORAGE
     try:
         MANUAL_STORAGE["RES"] = sorted([float(r.strip()) for r in res_list if r.strip()])
         MANUAL_STORAGE["SUP"] = sorted([float(s.strip()) for s in sup_list if s.strip()], reverse=True)
+
+        with open(SNR_FILE, "w") as f:
+            json.dump(MANUAL_STORAGE, f)
+
+        print(f"✅ SNR Saved: {MANUAL_STORAGE}")
+
         return True
-    except:
+    except Exception as e:
+        print(f"❌ Save SNR error: {e}")
         return False
 
-def get_strict_manual_zones(price_now, buffer=2.0):
-    """Konversi price ke zone (Rule: Full Manual Control)."""
-    final_res = []
-    final_sup = []
-    
-    # Filter Proximity: Hanya tampilkan yang dalam jangkauan $30
-    for r in MANUAL_STORAGE["RES"]:
-        if abs(r - price_now) < 30:
-            final_res.append({"level": r, "uz": r + buffer, "lz": r - buffer})
-            
-    for s in MANUAL_STORAGE["SUP"]:
-        if abs(s - price_now) < 30:
-            final_sup.append({"level": s, "uz": s + buffer, "lz": s - buffer})
-            
-    return {"RES": final_res, "SUP": final_sup}
 
-def get_refined_snd(df_m5):
-    """M5 SND dengan filter Imbalance Explosive."""
+# ===============================
+# 📦 SND DETECTION (RAN STYLE)
+# ===============================
+def get_ran_snd(df_m5):
     zones = []
-    for i in range(len(df_m5) - 5, 20, -1):
-        c1, c2, c3 = df_m5.iloc[i-1], df_m5.iloc[i], df_m5.iloc[i+1]
-        body_c3 = abs(c3['close'] - c3['open'])
-        avg_body = df_m5['close'].diff().abs().rolling(20).mean().iloc[i]
-        
-        if body_c3 > (avg_body * 1.5):
-            is_buy = (c3['close'] > c2['high'])
-            is_sell = (c3['close'] < c2['low'])
-            
-            if is_buy or is_sell:
+
+    for i in range(len(df_m5) - 3, max(len(df_m5) - 50, 2), -1):
+        c1 = df_m5.iloc[i-1]
+        c2 = df_m5.iloc[i]
+        c3 = df_m5.iloc[i+1]
+
+        c1_green = c1['close'] > c1['open']
+        c2_red = c2['close'] < c2['open']
+        c2_green = c2['close'] > c2['open']
+        c3_green = c3['close'] > c3['open']
+
+        # 🟢 BUY (B-R-B)
+        if c1_green and c2_red and c3_green:
+            if c3['close'] > c2['high']:
                 uz, lz = c2['high'], c2['low']
-                touch = sum(1 for j in range(i+2, len(df_m5)) if df_m5['high'].iloc[j] >= lz and df_m5['low'].iloc[j] <= uz)
-                if touch < 3:
+
+                touch = sum(
+                    1 for j in range(i+2, len(df_m5))
+                    if df_m5['high'].iloc[j] >= lz and df_m5['low'].iloc[j] <= uz
+                )
+
+                if touch <= 3:
                     zones.append({
-                        "type": "BUY" if is_buy else "SELL",
-                        "uz": uz, "lz": lz, "touch": touch,
-                        "strength": "STRONG" if touch == 0 else "VALID"
+                        "type": "BUY",
+                        "uz": uz,
+                        "lz": lz,
+                        "touch": touch,
+                        "fresh": touch == 0
                     })
+
+        # 🔴 SELL (R-B-R)
+        elif not c1_green and c2_green and not c3_green:
+            if c3['close'] < c2['low']:
+                uz, lz = c2['high'], c2['low']
+
+                touch = sum(
+                    1 for j in range(i+2, len(df_m5))
+                    if df_m5['high'].iloc[j] >= lz and df_m5['low'].iloc[j] <= uz
+                )
+
+                if touch <= 3:
+                    zones.append({
+                        "type": "SELL",
+                        "uz": uz,
+                        "lz": lz,
+                        "touch": touch,
+                        "fresh": touch == 0
+                    })
+
     return zones
 
+
+# ===============================
+# 📊 MAIN ANALYSIS
+# ===============================
 def analyze_market(df_h4, df_m30, df_m5):
-    price_now = df_m5['close'].iloc[-1]
-    manual_zones = get_strict_manual_zones(price_now)
-    
-    # H4 Parallel Channel Context
-    h4_high = df_h4['high'].rolling(50).max().iloc[-1]
-    h4_low = df_h4['low'].rolling(50).min().iloc[-1]
-    pos_pct = (price_now - h4_low) / (h4_high - h4_low) if (h4_high - h4_low) != 0 else 0.5
-    h4_pos = "UPPER" if pos_pct > 0.7 else ("LOWER" if pos_pct < 0.3 else "MIDDLE")
-    
-    all_snd = get_refined_snd(df_m5)
-    valid_setups = []
+
+    # 🔥 LOAD SNR SETIAP ANALISA
+    load_snr_from_file()
+
+    price_now = float(df_m5['close'].iloc[-1])
+
+    # ===============================
+    # 📊 SNR STRUCTURE
+    # ===============================
+    all_levels = sorted(list(set(MANUAL_STORAGE["RES"] + MANUAL_STORAGE["SUP"])))
+
+    if not all_levels:
+        return {
+            "price": price_now,
+            "nearest_support": None,
+            "nearest_resistance": None,
+            "next_target": None,
+            "status": "WAIT",
+            "m30_pos": "MIDDLE",
+            "reason": "SNR belum diset.",
+            "setup": None,
+            "h4_break_up": False,
+            "h4_break_down": False
+        }
+
+    below = [l for l in all_levels if l < price_now]
+    above = [l for l in all_levels if l > price_now]
+
+    nearest_sup = float(max(below)) if below else None
+    nearest_res = float(min(above)) if above else None
+
+    # ===============================
+    # 📊 H4 CLOSE VALIDATION (FIXED)
+    # ===============================
+    last_h4_close = float(df_h4['close'].iloc[-1])
+    BREAK_BUFFER = 0.5
+
+    h4_break_up = False
+    h4_break_down = False
+
+    if nearest_res is not None:
+        h4_break_up = last_h4_close > (nearest_res + BREAK_BUFFER)
+
+    if nearest_sup is not None:
+        h4_break_down = last_h4_close < (nearest_sup - BREAK_BUFFER)
+
+    # ===============================
+    # 🎯 NEXT TARGET
+    # ===============================
+    next_target = None
+
+    if h4_break_up and nearest_res:
+        next_levels = [l for l in all_levels if l > nearest_res]
+        next_target = next_levels[0] if next_levels else None
+
+    elif h4_break_down and nearest_sup:
+        next_levels = [l for l in all_levels if l < nearest_sup]
+        next_target = next_levels[-1] if next_levels else None
+
+    # ===============================
+    # 📏 M30 CHANNEL
+    # ===============================
+    h30_high = df_m30['high'].rolling(30).max().iloc[-1]
+    h30_low = df_m30['low'].rolling(30).min().iloc[-1]
+    m30_range = h30_high - h30_low
+
+    if m30_range > 0:
+        if price_now > (h30_high - (m30_range * 0.3)):
+            m30_pos = "UPPER"
+        elif price_now < (h30_low + (m30_range * 0.3)):
+            m30_pos = "LOWER"
+        else:
+            m30_pos = "MIDDLE"
+    else:
+        m30_pos = "MIDDLE"
+
+    # ===============================
+    # 📦 SND
+    # ===============================
+    all_snd = get_ran_snd(df_m5)
+
+    setup = None
+    status = "NO TRADE"
+    reason = "Menunggu struktur atau SND valid."
 
     for snd in all_snd:
-        # Check Manual SNR Confluence (Rule 5)
-        con_res = any(snd['lz'] <= r['level'] <= snd['uz'] for r in manual_zones['RES'])
-        con_sup = any(snd['lz'] <= s['level'] <= snd['uz'] for s in manual_zones['SUP'])
-        
-        is_valid = False
-        score = 40
-        
-        if snd['type'] == "SELL" and h4_pos == "UPPER" and con_res:
-            is_valid, score = True, 75
-        if snd['type'] == "BUY" and h4_pos == "LOWER" and con_sup:
-            is_valid, score = True, 75
-            
-        if is_valid:
-            valid_setups.append({**snd, "confidence": score, "confluence": True})
 
-    best = sorted(valid_setups, key=lambda x: x['confidence'], reverse=True)[0] if valid_setups else None
-    
-    # Logic Status
-    if not best:
-        status, reason = "WAITING", "Menunggu SND menyentuh SNR Manual Anda."
-    elif best['lz'] <= price_now <= best['uz']:
-        status, reason = "VALID ENTRY", f"Harga di zona {best['type']} + Konfluensi SNR Manual."
-    else:
-        status, reason = "WAIT RETEST", f"Menunggu retest ke zona {best['type']} ({best['lz']:.2f})."
+        if not snd.get('fresh', True) and snd.get('touch', 0) > 1:
+            continue
+
+        dist_to_sup = abs(snd['lz'] - nearest_sup) if nearest_sup else 999
+        dist_to_res = abs(snd['uz'] - nearest_res) if nearest_res else 999
+
+        # BUY
+        if snd['type'] == "BUY":
+            if m30_pos == "UPPER":
+                continue
+
+            if dist_to_sup < 2.5:
+                setup = snd
+
+                if snd['lz'] <= price_now <= snd['uz']:
+                    status = "VALID SETUP"
+                    reason = f"BUY di Support {nearest_sup}"
+                else:
+                    status = "WAIT RETEST"
+                    reason = f"Menunggu retest BUY di {nearest_sup}"
+                break
+
+        # SELL
+        elif snd['type'] == "SELL":
+            if m30_pos == "LOWER":
+                continue
+
+            if dist_to_res < 2.5:
+                setup = snd
+
+                if snd['lz'] <= price_now <= snd['uz']:
+                    status = "VALID SETUP"
+                    reason = f"SELL di Resistance {nearest_res}"
+                else:
+                    status = "WAIT RETEST"
+                    reason = f"Menunggu retest SELL di {nearest_res}"
+                break
+
+    if m30_pos == "MIDDLE" and not setup:
+        status = "WAIT"
+        reason = "Harga di middle"
 
     return {
-        "price": price_now, "h4_pos": h4_pos, "manual_snr": manual_zones,
-        "all_snd": all_snd, "best_setup": best, "status": status,
-        "reason": reason, "confidence": best['confidence'] if best else 35,
-        "bias": "BULLISH" if pos_pct > 0.5 else "BEARISH",
-        "signal": best['type'] if status == "VALID ENTRY" else "NONE"
+        "price": price_now,
+        "nearest_support": nearest_sup,
+        "nearest_resistance": nearest_res,
+        "next_target": next_target,
+        "status": status,
+        "m30_pos": m30_pos,
+        "reason": reason,
+        "setup": setup,
+        "h4_break_up": h4_break_up,
+        "h4_break_down": h4_break_down
     }
 
+
+# ===============================
+# 💰 RISK MANAGEMENT
+# ===============================
 def get_risk_params(signal, entry_price):
     pips = 2.5 if signal == "BUY" else -2.5
-    return entry_price - pips, entry_price + (pips * 2.4)
+    sl = entry_price - pips
+    tp = entry_price + (pips * 2.0)
+    return sl, tp

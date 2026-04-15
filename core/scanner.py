@@ -1,41 +1,78 @@
 from core.tv_conn import get_data_tv
 import time
+import pandas as pd  # 🔥 WAJIB (ini yang bikin error kamu tadi)
+
+def remove_unclosed_candle(df, timeframe_minutes):
+    """
+    Buang candle terakhir kalau belum close
+    """
+    if df is None or df.empty:
+        return df
+
+    try:
+        last_index = df.index[-1]
+        now = pd.Timestamp.utcnow()
+
+        # hitung selisih waktu (menit)
+        delta = (now - last_index).total_seconds() / 60
+
+        # kalau belum close → buang
+        if delta < timeframe_minutes:
+            return df.iloc[:-1]
+
+        return df
+
+    except Exception as e:
+        print(f"⚠️ Candle validation error: {e}")
+        return df
+
 
 def scan_xauusd():
     """
-    Mengambil data market dengan window yang cukup besar untuk analisis 
-    Struktur (H4), Konteks (M30), dan Eksekusi (M5).
+    Mengambil data market untuk:
+    H4 (struktur), M30 (channel), M5 (entry SND)
     """
+
     try:
-        # H4: Kita butuh 200 candle untuk deteksi Major Swing & Parallel Channel
         df_h4 = get_data_tv("XAUUSD", "H4", count=200)
-        
-        # M30: Kita butuh 150 candle untuk melihat struktur market terdekat
         df_m30 = get_data_tv("XAUUSD", "M30", count=150)
-        
-        # M5: Kita butuh 150 candle untuk mendeteksi SND valid + cek Touch Count
         df_m5 = get_data_tv("XAUUSD", "M5", count=150)
-        
-        # Validasi Data: Pastikan semua dataframe terisi dan tidak kosong
+
+        # ===============================
+        # VALIDASI DATA
+        # ===============================
         if df_h4 is None or df_h4.empty:
-            print("⚠️ Scanner Warning: Data H4 kosong.")
-            return None
-            
-        if df_m30 is None or df_m30.empty:
-            print("⚠️ Scanner Warning: Data M30 kosong.")
-            return None
-            
-        if df_m5 is None or df_m5.empty:
-            print("⚠️ Scanner Warning: Data M5 kosong.")
+            print("⚠️ H4 kosong")
             return None
 
-        # Berhasil: Kembalikan data untuk diproses strategy.py
+        if df_m30 is None or df_m30.empty:
+            print("⚠️ M30 kosong")
+            return None
+
+        if df_m5 is None or df_m5.empty:
+            print("⚠️ M5 kosong")
+            return None
+
+        # ===============================
+        # FIX ORDER DATA
+        # ===============================
+        df_h4 = df_h4.sort_index()
+        df_m30 = df_m30.sort_index()
+        df_m5 = df_m5.sort_index()
+
+        # ===============================
+        # FIX CANDLE CLOSE (SMART)
+        # ===============================
+        df_h4 = remove_unclosed_candle(df_h4, 240)  # H4 = 240 menit
+        df_m30 = remove_unclosed_candle(df_m30, 30)
+        df_m5 = remove_unclosed_candle(df_m5, 5)
+
         return df_h4, df_m30, df_m5
 
     except Exception as e:
-        print(f"❌ Scanner Critical Error: {e}")
+        print(f"❌ Scanner Error: {e}")
         return None
 
+
 def wait_for_market_update(interval=60):
-    """Fungsi helper untuk cooldown loop."""
     time.sleep(interval)
