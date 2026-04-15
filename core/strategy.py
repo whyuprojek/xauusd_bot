@@ -249,17 +249,18 @@ def analyze_market(df_h4, df_m30, df_m5):
         reason = "Harga di middle"
 
     return {
-        "price": price_now,
-        "nearest_support": nearest_sup,
-        "nearest_resistance": nearest_res,
-        "next_target": next_target,
-        "status": status,
-        "m30_pos": m30_pos,
-        "reason": reason,
-        "setup": setup,
-        "h4_break_up": h4_break_up,
-        "h4_break_down": h4_break_down
-    }
+    "price": price_now,
+    "nearest_support": nearest_sup,
+    "nearest_resistance": nearest_res,
+    "all_snr": all_levels,  # 🔥 INI KUNCI UTAMA
+    "next_target": next_target,
+    "status": status,
+    "m30_pos": m30_pos,
+    "reason": reason,
+    "setup": setup,
+    "h4_break_up": h4_break_up,
+    "h4_break_down": h4_break_down
+}
 
 
 # ===============================
