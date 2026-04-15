@@ -1,22 +1,30 @@
 from core.tv_conn import get_data_tv
 import time
-import pandas as pd  # 🔥 WAJIB (ini yang bikin error kamu tadi)
+import pandas as pd
+
 
 def remove_unclosed_candle(df, timeframe_minutes):
     """
-    Buang candle terakhir kalau belum close
+    Buang candle terakhir kalau belum close (FIX timezone safe)
     """
     if df is None or df.empty:
         return df
 
     try:
         last_index = df.index[-1]
-        now = pd.Timestamp.utcnow()
+
+        # 🔥 FIX TIMEZONE (WAJIB)
+        now = pd.Timestamp.now(tz='UTC')
+
+        if last_index.tzinfo is None:
+            last_index = last_index.tz_localize('UTC')
+        else:
+            last_index = last_index.tz_convert('UTC')
 
         # hitung selisih waktu (menit)
         delta = (now - last_index).total_seconds() / 60
 
-        # kalau belum close → buang
+        # kalau candle belum close → buang
         if delta < timeframe_minutes:
             return df.iloc[:-1]
 
@@ -63,7 +71,7 @@ def scan_xauusd():
         # ===============================
         # FIX CANDLE CLOSE (SMART)
         # ===============================
-        df_h4 = remove_unclosed_candle(df_h4, 240)  # H4 = 240 menit
+        df_h4 = remove_unclosed_candle(df_h4, 240)  # H4
         df_m30 = remove_unclosed_candle(df_m30, 30)
         df_m5 = remove_unclosed_candle(df_m5, 5)
 
